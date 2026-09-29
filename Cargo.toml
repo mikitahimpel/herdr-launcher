@@ -1,0 +1,17 @@
+[package]
+name = "herdr-dock"
+version = "0.1.0"
+edition = "2021"
+description = "Herdr plugin: a narrow launcher dock on the right edge of every tab"
+license = "MIT"
+publish = false
+
+[dependencies]
+ratatui = "0.30"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+[profile.release]
+lto = "thin"
+strip = true
