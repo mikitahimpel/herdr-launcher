@@ -7,7 +7,7 @@ use serde::Deserialize;
 #[derive(Deserialize, Clone)]
 pub struct Button {
     pub icon: String,
-    pub label: String,
+    pub color: Option<String>,
     pub plugin: Option<String>,
     pub entrypoint: Option<String>,
     pub placement: Option<String>,
@@ -24,27 +24,28 @@ struct Config {
     buttons: Vec<Button>,
 }
 
-pub const DEFAULT: &str = r#"# Buttons shown in the dock, top to bottom.
+pub const DEFAULT: &str = r##"# Buttons shown in the dock, top to bottom.
 #
 # A button opens a plugin pane (plugin + entrypoint) or runs a command.
+# placement: overlay (full tab, default here), popup, split, tab or zoomed.
+# color: icon color as "#rrggbb".
 # "{agent_pane}" in env values or command arguments becomes the agent pane in the dock's tab.
 
 [[buttons]]
 icon = "◆"
-label = "tokens"
+color = "#cba6f7"
 plugin = "agent-tokens"
 entrypoint = "dashboard"
+placement = "overlay"
 env = { AGENT_TOKENS_PANE = "{agent_pane}" }
 
 [[buttons]]
-icon = "⌕"
-label = "history"
+icon = "◷"
+color = "#89b4fa"
 plugin = "agent-history"
 entrypoint = "search"
-placement = "popup"
-width = "80%"
-height = "80%"
-"#;
+placement = "overlay"
+"##;
 
 fn path() -> Option<PathBuf> {
     std::env::var_os("HERDR_PLUGIN_CONFIG_DIR").map(|dir| PathBuf::from(dir).join("dock.toml"))

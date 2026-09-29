@@ -1,16 +1,19 @@
 # herdr-dock
 
-A [Herdr](https://herdr.dev) plugin that puts a narrow launcher dock on the right edge of every tab. Click a button to open a plugin panel — no keybindings to remember.
+A [Herdr](https://herdr.dev) plugin that puts a narrow icon dock on the right edge of every tab. Click an icon to open a plugin panel over the whole tab — no keybindings to remember.
 
 ```
-┌ your panes ───────────────────────────┐┌────────┐
-│                                       ││   ◆    │
-│                                       ││ tokens │
-│                                       ││        │
-│                                       ││   ⌕    │
-│                                       ││history │
-└───────────────────────────────────────┘└────────┘
+┌ your panes ───────────────────────────┐┌───────────┐
+│                                       ││ ┌───────┐ │
+│                                       ││ │   ◆   │ │
+│                                       ││ └───────┘ │
+│                                       ││ ┌───────┐ │
+│                                       ││ │   ◷   │ │
+│                                       ││ └───────┘ │
+└───────────────────────────────────────┘└───────────┘
 ```
+
+Every icon sits on a tile of the same size, so glyphs from different fonts still line up. The dock is as narrow as Herdr allows: splits are limited to 10% of their parent, so it takes 10% of the tab width.
 
 - The dock adds itself to every tab: new tabs and workspaces get one automatically, and existing tabs get one when the session starts.
 - In a tab with several panes, it's split off the rightmost pane.
@@ -33,21 +36,20 @@ Buttons live in `dock.toml` in the plugin's config directory (`herdr plugin conf
 ```toml
 [[buttons]]
 icon = "◆"
-label = "tokens"
+color = "#cba6f7"
 plugin = "agent-tokens"
 entrypoint = "dashboard"
+placement = "overlay"
 env = { AGENT_TOKENS_PANE = "{agent_pane}" }
 
 [[buttons]]
-icon = "⌕"
-label = "history"
+icon = "◷"
+color = "#89b4fa"
 plugin = "agent-history"
 entrypoint = "search"
-placement = "popup"
-width = "80%"
-height = "80%"
+placement = "overlay"
 ```
 
-A button either opens a plugin pane (`plugin`, `entrypoint`, and optional `placement`, `width`, `height`, `env`) or runs `command = ["argv", ...]`. `{agent_pane}` becomes the agent pane in the dock's tab. The dock rereads the file every few seconds and shows `config!` if it can't parse it.
+A button either opens a plugin pane (`plugin`, `entrypoint`, and optional `placement`, `width`, `height`, `env`, `color`) or runs `command = ["argv", ...]`. `{agent_pane}` becomes the agent pane in the dock's tab. The dock rereads the file every few seconds and shows a red `!` if it can't parse it.
 
 Pairs with [herdr-agent-tokens](https://github.com/mikitahimpel/herdr-agent-tokens).

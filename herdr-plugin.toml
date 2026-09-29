@@ -1,6 +1,6 @@
 id = "herdr-dock"
 name = "Dock"
-version = "0.1.1"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "A narrow launcher dock on the right edge of every tab: click to open your plugin panels"
 platforms = ["macos", "linux"]

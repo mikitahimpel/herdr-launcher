@@ -19,13 +19,13 @@ use serde_json::Value;
 
 use config::Button;
 
-const TEXT: Color = Color::Rgb(205, 214, 244);
-const MUTED: Color = Color::Rgb(108, 112, 134);
 const ACCENT: Color = Color::Rgb(203, 166, 247);
 const RED: Color = Color::Rgb(243, 139, 168);
-const HOVER: Color = Color::Rgb(49, 50, 68);
-const PRESSED: Color = Color::Rgb(69, 71, 90);
-const BUTTON_HEIGHT: u16 = 3;
+const TILE: Color = Color::Rgb(40, 42, 58);
+const HOVER: Color = Color::Rgb(69, 71, 90);
+const PRESSED: Color = Color::Rgb(88, 91, 112);
+const TILE_WIDTH: u16 = 7;
+const TILE_HEIGHT: u16 = 3;
 const TAB_CHECK: Duration = Duration::from_secs(3);
 const FLASH: Duration = Duration::from_millis(400);
 
@@ -99,7 +99,13 @@ impl Dock {
     }
 
     fn button_area(&self, area: Rect, index: usize) -> Rect {
-        Rect { x: area.x, y: area.y + 1 + index as u16 * BUTTON_HEIGHT, width: area.width, height: BUTTON_HEIGHT - 1 }
+        let width = TILE_WIDTH.min(area.width);
+        Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + 1 + index as u16 * (TILE_HEIGHT + 1),
+            width,
+            height: TILE_HEIGHT,
+        }
     }
 
     fn button_at(&self, area: Rect, position: Position) -> Option<usize> {
@@ -115,28 +121,32 @@ impl Dock {
             }
             let flash = self.flash.filter(|(i, _, at)| *i == index && at.elapsed() < FLASH);
             let hovered = self.hover.is_some_and(|p| rect.contains(p));
-            let (background, icon_color) = match flash {
-                Some((_, true, _)) => (PRESSED, ACCENT),
+            let color = button.color.as_deref().and_then(parse_color).unwrap_or(ACCENT);
+            let (background, icon) = match flash {
                 Some((_, false, _)) => (PRESSED, RED),
-                None if hovered => (HOVER, ACCENT),
-                None => (Color::Reset, ACCENT),
+                Some(_) => (PRESSED, color),
+                None if hovered => (HOVER, color),
+                None => (TILE, color),
             };
-            let label: String = button.label.chars().take(area.width as usize).collect();
+            let blank = Line::from("");
             frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(button.icon.clone()).fg(icon_color).bold(),
-                    Line::from(label).fg(if hovered { TEXT } else { MUTED }),
-                ])
-                .alignment(Alignment::Center)
-                .style(Style::new().bg(background)),
+                Paragraph::new(vec![blank.clone(), Line::from(button.icon.clone()).fg(icon).bold(), blank])
+                    .alignment(Alignment::Center)
+                    .style(Style::new().bg(background)),
                 rect,
             );
         }
         if self.config_error.is_some() {
             let rect = Rect { y: area.bottom().saturating_sub(1), height: 1, ..area };
-            frame.render_widget(Paragraph::new(Line::from("config!").fg(RED)).alignment(Alignment::Center), rect);
+            frame.render_widget(Paragraph::new(Line::from("!").fg(RED)).alignment(Alignment::Center), rect);
         }
     }
+}
+
+fn parse_color(hex: &str) -> Option<Color> {
+    let hex = hex.strip_prefix('#')?;
+    let value = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6)?;
+    Some(Color::Rgb((value >> 16) as u8, (value >> 8) as u8, value as u8))
 }
 
 fn run_dock() -> io::Result<()> {
@@ -148,6 +158,9 @@ fn run_dock() -> io::Result<()> {
         hover: None,
         flash: None,
     };
+    if let Some(pane) = &dock.pane_id {
+        herdr::call(&["pane", "rename", pane, "--clear"]);
+    }
     dock.reload();
     if !dock.refresh_tab() {
         return Ok(());

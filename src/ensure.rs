@@ -45,13 +45,19 @@ pub fn run() -> i32 {
             tabs.entry(field(&pane, "tab_id").to_string()).or_default().push(pane);
         }
         for panes in tabs.values() {
-            if panes.iter().any(|p| field(p, "label") == DOCK_LABEL) {
+            if panes.iter().any(is_dock) {
                 continue;
             }
             add_dock(field(&panes[0], "pane_id"));
         }
     }
     0
+}
+
+/// Docks clear their label, so recognize them by running from the plugin root.
+fn is_dock(pane: &Value) -> bool {
+    let root = std::env::var("HERDR_PLUGIN_ROOT").unwrap_or_default();
+    field(pane, "label") == DOCK_LABEL || (!root.is_empty() && field(pane, "cwd") == root)
 }
 
 fn add_dock(any_pane: &str) {
@@ -101,7 +107,7 @@ fn fit(dock: &str, neighbor: &str) {
 pub fn fit_all() -> i32 {
     for workspace in list(call(&["workspace", "list"]), "workspaces") {
         for pane in list(call(&["pane", "list", "--workspace", field(&workspace, "workspace_id")]), "panes") {
-            if field(&pane, "label") != DOCK_LABEL {
+            if !is_dock(&pane) {
                 continue;
             }
             let dock = field(&pane, "pane_id");
