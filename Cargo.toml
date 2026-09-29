@@ -1,6 +1,6 @@
 [package]
 name = "herdr-dock"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Herdr plugin: a narrow launcher dock on the right edge of every tab"
 license = "MIT"

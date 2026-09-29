@@ -3,7 +3,7 @@ use std::process::Command;
 use serde_json::Value;
 
 pub const DOCK_LABEL: &str = "herdr-dock";
-pub const DOCK_WIDTH: u16 = 10;
+pub const DOCK_WIDTH: u16 = 13;
 
 pub fn bin() -> String {
     std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".to_string())

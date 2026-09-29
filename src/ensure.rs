@@ -79,11 +79,43 @@ fn add_dock(any_pane: &str) {
         return;
     };
 
-    let Some((area, panes)) = herdr::layout(dock) else { return };
-    let Some((_, rect)) = panes.iter().find(|(id, _)| id == dock) else { return };
-    let excess = rect.width - DOCK_WIDTH as i64;
-    if excess > 0 && area.width > 0 {
-        let amount = format!("{:.4}", excess as f64 / area.width as f64);
-        call(&["pane", "resize", "--pane", &target, "--direction", "right", "--amount", &amount]);
+    fit(dock, &target);
+}
+
+/// Shrinks the dock to `DOCK_WIDTH`; resize amounts are relative to the split, so converge in a few steps.
+fn fit(dock: &str, neighbor: &str) {
+    for _ in 0..4 {
+        let Some((_, panes)) = herdr::layout(dock) else { return };
+        let width = |id: &str| panes.iter().find(|(p, _)| p == id).map(|(_, r)| r.width);
+        let (Some(dock_width), Some(neighbor_width)) = (width(dock), width(neighbor)) else { return };
+        let excess = dock_width - DOCK_WIDTH as i64;
+        if excess <= 0 {
+            return;
+        }
+        let amount = format!("{:.4}", excess as f64 / (dock_width + neighbor_width) as f64);
+        call(&["pane", "resize", "--pane", neighbor, "--direction", "right", "--amount", &amount]);
     }
+}
+
+/// Fits existing docks to their left neighbor.
+pub fn fit_all() -> i32 {
+    for workspace in list(call(&["workspace", "list"]), "workspaces") {
+        for pane in list(call(&["pane", "list", "--workspace", field(&workspace, "workspace_id")]), "panes") {
+            if field(&pane, "label") != DOCK_LABEL {
+                continue;
+            }
+            let dock = field(&pane, "pane_id");
+            let Some((_, panes)) = herdr::layout(dock) else { continue };
+            let Some((_, rect)) = panes.iter().find(|(p, _)| p == dock) else { continue };
+            let left = panes
+                .iter()
+                .filter(|(p, r)| p != dock && r.x + r.width == rect.x && r.y <= rect.y && r.y + r.height >= rect.y + 1)
+                .max_by_key(|(_, r)| r.height)
+                .map(|(p, _)| p.clone());
+            if let Some(left) = left {
+                fit(dock, &left);
+            }
+        }
+    }
+    0
 }

@@ -200,6 +200,7 @@ fn run_dock() -> io::Result<()> {
 fn main() -> io::Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("ensure") => std::process::exit(ensure::run()),
+        Some("fit") => std::process::exit(ensure::fit_all()),
         _ => run_dock(),
     }
 }
