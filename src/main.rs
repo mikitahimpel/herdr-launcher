@@ -1,145 +1,139 @@
 mod config;
-mod ensure;
 mod herdr;
 
 use std::io;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton,
+    MouseEventKind,
 };
 use ratatui::crossterm::execute;
-use ratatui::layout::{Alignment, Position, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Position, Rect};
 use ratatui::style::{Color, Style, Stylize};
-use ratatui::text::Line;
-use ratatui::widgets::Paragraph;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
-use serde_json::Value;
 
-use config::Button;
+use config::Panel;
 
+const TEXT: Color = Color::Rgb(205, 214, 244);
+const MUTED: Color = Color::Rgb(108, 112, 134);
+const BORDER: Color = Color::Rgb(69, 71, 90);
 const ACCENT: Color = Color::Rgb(203, 166, 247);
 const RED: Color = Color::Rgb(243, 139, 168);
-const TILE: Color = Color::Rgb(40, 42, 58);
-const HOVER: Color = Color::Rgb(69, 71, 90);
-const PRESSED: Color = Color::Rgb(88, 91, 112);
-const TILE_WIDTH: u16 = 7;
-const TILE_HEIGHT: u16 = 3;
-const TAB_CHECK: Duration = Duration::from_secs(3);
-const FLASH: Duration = Duration::from_millis(400);
+const SELECTED: Color = Color::Rgb(49, 50, 68);
+const ITEM_HEIGHT: u16 = 3;
 
-struct Dock {
-    pane_id: Option<String>,
-    buttons: Vec<Button>,
-    config_error: Option<String>,
+struct Menu {
+    panels: Vec<Panel>,
+    error: Option<String>,
+    selected: usize,
     agent_pane: Option<String>,
-    hover: Option<Position>,
-    flash: Option<(usize, bool, Instant)>,
 }
 
-impl Dock {
-    fn reload(&mut self) {
-        match config::load() {
-            Ok(buttons) => {
-                self.buttons = buttons;
-                self.config_error = None;
-            }
-            Err(error) => self.config_error = Some(error),
-        }
-    }
-
-    /// Returns false when the dock is the last pane left in its tab.
-    fn refresh_tab(&mut self) -> bool {
-        let Some(pane_id) = &self.pane_id else { return true };
-        let Some(neighbors) = herdr::tab_neighbors(pane_id) else { return true };
-        if neighbors.is_empty() {
-            return false;
-        }
-        let agents: Vec<&Value> = neighbors.iter().filter(|p| !herdr::field(p, "agent").is_empty()).collect();
-        self.agent_pane = agents
-            .iter()
-            .find(|p| p.get("focused").and_then(Value::as_bool) == Some(true))
-            .or_else(|| agents.first())
-            .map(|p| herdr::field(p, "pane_id").to_string());
-        true
-    }
-
+impl Menu {
     fn fill(&self, value: &str) -> String {
         value.replace("{agent_pane}", self.agent_pane.as_deref().unwrap_or(""))
     }
 
-    fn launch(&self, button: &Button) -> bool {
-        if let (Some(plugin), Some(entrypoint)) = (&button.plugin, &button.entrypoint) {
-            let mut args = vec!["plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entrypoint];
-            for (flag, value) in [("--placement", &button.placement), ("--width", &button.width), ("--height", &button.height)] {
+    fn launch(&self, panel: &Panel) -> Result<(), String> {
+        if let (Some(plugin), Some(entrypoint)) = (&panel.plugin, &panel.entrypoint) {
+            let placement = panel.placement.clone().unwrap_or_else(|| "overlay".to_string());
+            let mut args: Vec<String> =
+                ["plugin", "pane", "open", "--plugin", plugin, "--entrypoint", entrypoint, "--placement", &placement]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+            for (flag, value) in [("--width", &panel.width), ("--height", &panel.height)] {
                 if let Some(value) = value {
-                    args.extend([flag, value.as_str()]);
+                    args.extend([flag.to_string(), value.clone()]);
                 }
             }
-            let env: Vec<String> = button
-                .env
-                .iter()
-                .map(|(key, value)| format!("{key}={}", self.fill(value)))
-                .filter(|pair| !pair.ends_with('='))
-                .collect();
-            for pair in &env {
-                args.extend(["--env", pair.as_str()]);
+            for (key, value) in &panel.env {
+                let value = self.fill(value);
+                if !value.is_empty() {
+                    args.extend(["--env".to_string(), format!("{key}={value}")]);
+                }
             }
-            return Command::new(herdr::bin()).args(&args).output().is_ok_and(|o| o.status.success());
+            let output = Command::new(herdr::bin()).args(&args).output().map_err(|e| e.to_string())?;
+            if output.status.success() {
+                return Ok(());
+            }
+            let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_default();
+            return Err(error
+                .pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("couldn't open this panel")
+                .to_string());
         }
-        let Some((program, rest)) = button.command.as_ref().and_then(|c| c.split_first()) else { return false };
+        let Some((program, rest)) = panel.command.as_ref().and_then(|c| c.split_first()) else {
+            return Err("panel has no plugin or command".into());
+        };
         Command::new(self.fill(program))
             .args(rest.iter().map(|arg| self.fill(arg)))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .is_ok()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
-    fn button_area(&self, area: Rect, index: usize) -> Rect {
-        let width = TILE_WIDTH.min(area.width);
-        Rect {
-            x: area.x + (area.width - width) / 2,
-            y: area.y + 1 + index as u16 * (TILE_HEIGHT + 1),
-            width,
-            height: TILE_HEIGHT,
-        }
+    fn areas(area: Rect) -> (Rect, Rect) {
+        let inner = Block::bordered().inner(area).inner(Margin::new(1, 1));
+        let [list, _, footer] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+        (list, footer)
     }
 
-    fn button_at(&self, area: Rect, position: Position) -> Option<usize> {
-        (0..self.buttons.len()).find(|&i| self.button_area(area, i).contains(position))
+    fn item_area(list: Rect, index: usize) -> Rect {
+        Rect { y: list.y + index as u16 * ITEM_HEIGHT, height: ITEM_HEIGHT - 1, ..list }
     }
 
     fn draw(&self, frame: &mut Frame) {
         let area = frame.area();
-        for (index, button) in self.buttons.iter().enumerate() {
-            let rect = self.button_area(area, index);
-            if rect.bottom() > area.bottom() {
+        frame.render_widget(
+            Block::bordered()
+                .border_type(BorderType::Rounded)
+                .border_style(Style::new().fg(BORDER))
+                .title(Line::from(vec![Span::from(" ◆ ").fg(ACCENT), Span::from("Panels ").fg(TEXT).bold()])),
+            area,
+        );
+        let (list, footer) = Self::areas(area);
+
+        for (index, panel) in self.panels.iter().enumerate() {
+            let rect = Self::item_area(list, index);
+            if rect.bottom() > list.bottom() {
                 break;
             }
-            let flash = self.flash.filter(|(i, _, at)| *i == index && at.elapsed() < FLASH);
-            let hovered = self.hover.is_some_and(|p| rect.contains(p));
-            let color = button.color.as_deref().and_then(parse_color).unwrap_or(ACCENT);
-            let (background, icon) = match flash {
-                Some((_, false, _)) => (PRESSED, RED),
-                Some(_) => (PRESSED, color),
-                None if hovered => (HOVER, color),
-                None => (TILE, color),
-            };
-            let blank = Line::from("");
+            let selected = index == self.selected;
+            let color = panel.color.as_deref().and_then(parse_color).unwrap_or(ACCENT);
+            let marker = if selected { "▌" } else { " " };
+            let number = if index < 9 { (index + 1).to_string() } else { String::new() };
+            let name_width = rect.width.saturating_sub(6 + number.len() as u16) as usize;
+            let name = format!("{:<name_width$}", panel.name);
             frame.render_widget(
-                Paragraph::new(vec![blank.clone(), Line::from(button.icon.clone()).fg(icon).bold(), blank])
-                    .alignment(Alignment::Center)
-                    .style(Style::new().bg(background)),
+                Paragraph::new(vec![
+                    Line::from(vec![
+                        Span::from(marker).fg(color),
+                        Span::from(format!(" {}  ", panel.icon)).fg(color).bold(),
+                        Span::from(name).fg(TEXT).bold(),
+                        Span::from(number).fg(MUTED),
+                    ]),
+                    Line::from(vec![Span::from(marker).fg(color), Span::from(format!("    {}", panel.description)).fg(MUTED)]),
+                ])
+                .style(if selected { Style::new().bg(SELECTED) } else { Style::new() }),
                 rect,
             );
         }
-        if self.config_error.is_some() {
-            let rect = Rect { y: area.bottom().saturating_sub(1), height: 1, ..area };
-            frame.render_widget(Paragraph::new(Line::from("!").fg(RED)).alignment(Alignment::Center), rect);
-        }
+
+        let hint = match &self.error {
+            Some(error) => Line::from(error.clone()).fg(RED),
+            None => Line::from("↑↓ select · enter open · 1-9 · esc close").fg(MUTED),
+        };
+        frame.render_widget(Paragraph::new(hint), footer);
     }
 }
 
@@ -149,59 +143,61 @@ fn parse_color(hex: &str) -> Option<Color> {
     Some(Color::Rgb((value >> 16) as u8, (value >> 8) as u8, value as u8))
 }
 
-fn run_dock() -> io::Result<()> {
-    let mut dock = Dock {
-        pane_id: std::env::var("HERDR_PANE_ID").ok().filter(|p| !p.is_empty()),
-        buttons: Vec::new(),
-        config_error: None,
-        agent_pane: None,
-        hover: None,
-        flash: None,
+fn run_menu() -> io::Result<()> {
+    let (panels, error) = match config::load() {
+        Ok(panels) => (panels, None),
+        Err(error) => (Vec::new(), Some(format!("launcher.toml: {error}"))),
     };
-    if let Some(pane) = &dock.pane_id {
-        herdr::call(&["pane", "rename", pane, "--clear"]);
-    }
-    dock.reload();
-    if !dock.refresh_tab() {
-        return Ok(());
-    }
+    let mut menu = Menu { panels, error, selected: 0, agent_pane: herdr::agent_pane() };
+    let count = menu.panels.len().max(1);
 
     let mut terminal = ratatui::init();
     execute!(io::stdout(), EnableMouseCapture)?;
-    let mut checked = Instant::now();
     let result = (|| -> io::Result<()> {
         loop {
-            terminal.draw(|frame| dock.draw(frame))?;
-            if checked.elapsed() >= TAB_CHECK {
-                checked = Instant::now();
-                dock.reload();
-                if !dock.refresh_tab() {
-                    return Ok(());
-                }
-            }
-            if !event::poll(Duration::from_millis(100))? {
+            terminal.draw(|frame| menu.draw(frame))?;
+            if !event::poll(Duration::from_millis(250))? {
                 continue;
             }
             let area = terminal.get_frame().area();
-            match event::read()? {
+            let chosen = match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
+                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                        menu.selected = (menu.selected + 1) % count;
+                        None
+                    }
+                    KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                        menu.selected = (menu.selected + count - 1) % count;
+                        None
+                    }
+                    KeyCode::Enter => Some(menu.selected).filter(|&i| i < menu.panels.len()),
+                    KeyCode::Char(c @ '1'..='9') => Some(c as usize - '1' as usize).filter(|&i| i < menu.panels.len()),
+                    _ => None,
+                },
                 Event::Mouse(mouse) => {
+                    let (list, _) = Menu::areas(area);
                     let position = Position { x: mouse.column, y: mouse.row };
+                    let hit = (0..menu.panels.len()).find(|&i| Menu::item_area(list, i).contains(position));
                     match mouse.kind {
-                        MouseEventKind::Down(MouseButton::Left) => {
-                            if let Some(index) = dock.button_at(area, position) {
-                                dock.refresh_tab();
-                                let ok = dock.launch(&dock.buttons[index].clone());
-                                dock.flash = Some((index, ok, Instant::now()));
+                        MouseEventKind::Moved => {
+                            if let Some(index) = hit {
+                                menu.selected = index;
                             }
+                            None
                         }
-                        MouseEventKind::Moved => dock.hover = Some(position),
-                        _ => {}
+                        MouseEventKind::Down(MouseButton::Left) => hit,
+                        _ => None,
                     }
                 }
-                Event::Key(key) if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Ok(());
+                _ => None,
+            };
+            if let Some(index) = chosen {
+                match menu.launch(&menu.panels[index].clone()) {
+                    Ok(()) => return Ok(()),
+                    Err(error) => menu.error = Some(error),
                 }
-                _ => {}
             }
         }
     })();
@@ -212,8 +208,7 @@ fn run_dock() -> io::Result<()> {
 
 fn main() -> io::Result<()> {
     match std::env::args().nth(1).as_deref() {
-        Some("ensure") => std::process::exit(ensure::run()),
-        Some("fit") => std::process::exit(ensure::fit_all()),
-        _ => run_dock(),
+        Some("open") => std::process::exit(herdr::open_menu()),
+        _ => run_menu(),
     }
 }

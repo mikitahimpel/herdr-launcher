@@ -1,55 +1,63 @@
-# herdr-dock
+# herdr-launcher
 
-A [Herdr](https://herdr.dev) plugin that puts a narrow icon dock on the right edge of every tab. Click an icon to open a plugin panel over the whole tab — no keybindings to remember.
+A [Herdr](https://herdr.dev) plugin: one keybinding opens a small floating menu of your plugin panels; pick one and it opens over the whole tab.
 
 ```
-┌ your panes ───────────────────────────┐┌───────────┐
-│                                       ││ ┌───────┐ │
-│                                       ││ │   ◆   │ │
-│                                       ││ └───────┘ │
-│                                       ││ ┌───────┐ │
-│                                       ││ │   ◷   │ │
-│                                       ││ └───────┘ │
-└───────────────────────────────────────┘└───────────┘
+╭ ◆ Panels ──────────────────────────────────────────╮
+│                                                    │
+│ ▌ ◆  Token usage                                1  │
+│ ▌    context, output, prompts and subagents        │
+│                                                    │
+│   ◷  Agent history                              2  │
+│      search and resume Claude Code and Codex …     │
+│                                                    │
+│ ↑↓ select · enter open · 1-9 · esc close           │
+╰────────────────────────────────────────────────────╯
 ```
 
-Every icon sits on a tile of the same size, so glyphs from different fonts still line up. The dock is as narrow as Herdr allows: splits are limited to 10% of their parent, so it takes 10% of the tab width.
-
-- The dock adds itself to every tab: new tabs and workspaces get one automatically, and existing tabs get one when the session starts.
-- In a tab with several panes, it's split off the rightmost pane.
-- When the dock is the only pane left in a tab, it closes itself.
-- Close it in a tab if you don't want it there; it comes back only when the session restarts.
+Pick with the mouse, arrows and Enter, or the number keys. `esc` closes the menu.
 
 ## Install
 
 Requires Herdr 0.9.0+ and a Rust toolchain (`cargo`); the install builds the binary.
 
 ```sh
-herdr plugin install mikitahimpel/herdr-dock
-herdr plugin action invoke herdr-dock.ensure   # add the dock to the tabs you already have
+herdr plugin install mikitahimpel/herdr-launcher
 ```
 
-## Buttons
-
-Buttons live in `dock.toml` in the plugin's config directory (`herdr plugin config-dir herdr-dock`). It's created on first run with:
+Bind the menu in `~/.config/herdr/config.toml`, then run `herdr server reload-config`:
 
 ```toml
-[[buttons]]
+[[keys.command]]
+key = "prefix+space"
+type = "plugin_action"
+command = "launcher.menu"
+description = "panels"
+```
+
+## Panels
+
+Panels live in `launcher.toml` in the plugin's config directory (`herdr plugin config-dir launcher`), created on first use:
+
+```toml
+[[panels]]
 icon = "◆"
+name = "Token usage"
+description = "context, output, prompts and subagents"
 color = "#cba6f7"
 plugin = "agent-tokens"
 entrypoint = "dashboard"
-placement = "overlay"
 env = { AGENT_TOKENS_PANE = "{agent_pane}" }
 
-[[buttons]]
+[[panels]]
 icon = "◷"
+name = "Agent history"
+description = "search and resume Claude Code and Codex sessions"
 color = "#89b4fa"
 plugin = "agent-history"
 entrypoint = "search"
-placement = "overlay"
 ```
 
-A button either opens a plugin pane (`plugin`, `entrypoint`, and optional `placement`, `width`, `height`, `env`, `color`) or runs `command = ["argv", ...]`. `{agent_pane}` becomes the agent pane in the dock's tab. The dock rereads the file every few seconds and shows a red `!` if it can't parse it.
+A panel opens a plugin pane (`plugin`, `entrypoint`, optional `placement` — `overlay` by default — `width`, `height`, `env`) or runs `command = ["argv", ...]`. `{agent_pane}` becomes the agent pane the launcher was opened from: the focused pane if it runs an agent, otherwise the first agent in its tab.
 
 Pairs with [herdr-agent-tokens](https://github.com/mikitahimpel/herdr-agent-tokens).

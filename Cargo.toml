@@ -1,8 +1,8 @@
 [package]
-name = "herdr-dock"
-version = "0.2.0"
+name = "herdr-launcher"
+version = "0.3.0"
 edition = "2021"
-description = "Herdr plugin: a narrow launcher dock on the right edge of every tab"
+description = "Herdr plugin: a floating launcher menu for your plugin panels"
 license = "MIT"
 publish = false
 

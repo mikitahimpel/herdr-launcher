@@ -1,32 +1,23 @@
-id = "herdr-dock"
-name = "Dock"
-version = "0.2.0"
+id = "launcher"
+name = "Launcher"
+version = "0.3.0"
 min_herdr_version = "0.9.0"
-description = "A narrow launcher dock on the right edge of every tab: click to open your plugin panels"
+description = "A floating launcher menu for your plugin panels"
 platforms = ["macos", "linux"]
 
 [[build]]
 command = ["cargo", "build", "--release", "--locked"]
 
-[[startup]]
-command = ["target/release/herdr-dock", "ensure"]
-
-[[events]]
-on = "tab.created"
-command = ["target/release/herdr-dock", "ensure"]
-
-[[events]]
-on = "workspace.created"
-command = ["target/release/herdr-dock", "ensure"]
-
 [[actions]]
-id = "ensure"
-title = "Add the dock to every tab"
-contexts = ["global"]
-command = ["target/release/herdr-dock", "ensure"]
+id = "menu"
+title = "Open the launcher"
+contexts = ["global", "workspace", "tab", "pane"]
+command = ["target/release/herdr-launcher", "open"]
 
 [[panes]]
-id = "dock"
-title = "herdr-dock"
-placement = "split"
-command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/target/release/herdr-dock\""]
+id = "menu"
+title = "Launcher"
+placement = "popup"
+width = 56
+height = 16
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/target/release/herdr-launcher\""]
